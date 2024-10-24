@@ -2,6 +2,8 @@ import tkinter as tk
 from pprint import pprint
 from tkinter import messagebox, filedialog, Menu, ttk
 import sqlite3
+
+import pandas as pd
 import xlrd
 import openpyxl
 
@@ -245,7 +247,7 @@ class StudentManagementApp(tk.Tk):
         self.cursor = self.conn.cursor()
         self.cursor.execute("SELECT DISTINCT Lop FROM courses")
         classes = [row[0] for row in self.cursor.fetchall()]
-        print("classes: " + str(classes))  # In ra để kiểm tra
+        #print("classes: " + str(classes))  # In ra để kiểm tra
 
         # Gán danh sách lớp vào class_combobox
         self.class_combobox['values'] = classes
@@ -257,7 +259,7 @@ class StudentManagementApp(tk.Tk):
         # Truy vấn danh sách tên môn học từ cơ sở dữ liệu
         self.cursor.execute("SELECT DISTINCT MonHoc FROM courses")
         courses = [row[0] for row in self.cursor.fetchall()]
-        print("courses: " + str(courses))  # In ra để kiểm tra
+        #print("courses: " + str(courses))  # In ra để kiểm tra
 
         # Gán danh sách môn học vào course_combobox
         self.course_combobox['values'] = courses
@@ -465,52 +467,161 @@ class StudentManagementApp(tk.Tk):
     def student_form(self, title, student_data):
         self.form_window = tk.Toplevel(self)
         self.form_window.title(title)
+        self.form_window.minsize(400, 300)  # Kích thước tối thiểu lớn hơn
 
-        tk.Label(self.form_window, text="Mã sinh viên:").grid(row=0, column=0)
+        tk.Label(self.form_window, text="Mã sinh viên:").grid(row=0, column=0, padx=5, pady=5)
         student_id_entry = tk.Entry(self.form_window)
-        student_id_entry.grid(row=0, column=1)
+        student_id_entry.grid(row=0, column=1, padx=5, pady=5)
 
-        tk.Label(self.form_window, text="Họ đệm:").grid(row=1, column=0)
+        tk.Label(self.form_window, text="Họ đệm:").grid(row=1, column=0, padx=5, pady=5)
         last_name_entry = tk.Entry(self.form_window)
-        last_name_entry.grid(row=1, column=1)
+        last_name_entry.grid(row=1, column=1, padx=5, pady=5)
 
-        tk.Label(self.form_window, text="Tên:").grid(row=2, column=0)
+        tk.Label(self.form_window, text="Tên:").grid(row=2, column=0, padx=5, pady=5)
         first_name_entry = tk.Entry(self.form_window)
-        first_name_entry.grid(row=2, column=1)
+        first_name_entry.grid(row=2, column=1, padx=5, pady=5)
 
-        tk.Label(self.form_window, text="Lớp:").grid(row=3, column=0)
-        class_name_entry = tk.Entry(self.form_window)
-        class_name_entry.grid(row=3, column=1)
+        # Combobox chọn Lớp
+        tk.Label(self.form_window, text="Lớp:").grid(row=3, column=0, padx=5, pady=5)
+        self.class_combobox = ttk.Combobox(self.form_window)
+        self.class_combobox.grid(row=3, column=1, padx=5, pady=5)
+
+        # Combobox chọn Tên môn học
+        tk.Label(self.form_window, text="Tên môn học:").grid(row=4, column=0, padx=5, pady=5)
+        self.course_combobox = ttk.Combobox(self.form_window)
+        self.course_combobox.grid(row=4, column=1, padx=5, pady=5)
+
+        # Sự kiện thay đổi lớp học
+        self.class_combobox.bind('<<ComboboxSelected>>', self.update_subjects)
+
+        # Sự kiện thay đổi môn học
+        self.course_combobox.bind('<<ComboboxSelected>>', self.update_classes)
+
+        # Tải dữ liệu lớp học và môn học
+        classes, subjects = self.load_classes_and_subjects()
+        self.class_combobox['values'] = classes
+        self.course_combobox['values'] = subjects
 
         if student_data:
             # Điền dữ liệu hiện có nếu có
             student_id_entry.insert(0, student_data[0])
             last_name_entry.insert(0, student_data[1])
             first_name_entry.insert(0, student_data[2])
-            class_name_entry.insert(0, student_data[3])
-  
+            self.class_combobox.set(student_data[3])
+            self.course_combobox.set(student_data[4])
 
-        save_button = tk.Button(self.form_window, text="Lưu", command=lambda: self.save_student(student_id_entry.get(), last_name_entry.get(), first_name_entry.get(), class_name_entry.get(), student_data))
-        save_button.grid(row=9, columnspan=2)
+        #Đặt lại hàng cho nút Lưu
+        self.save_button = tk.Button(self.form_window, text="Lưu", command=lambda: self.save_student(
+            student_id_entry.get(),
+            last_name_entry.get(),
+            first_name_entry.get(),
+            self.class_combobox.get(),
+            self.course_combobox.get(),
+            student_data
+        ))
+        self.save_button.grid(row=5, column=0, columnspan=2, pady=10)  # Dùng grid và cột span để căn giữa
 
-    def save_student(self, student_id, last_name, first_name, class_name, student_data):
-        conn = sqlite3.connect('student_management.db')
-        cursor = conn.cursor()
+    def update_classes(self, event):
+        selected_subject = self.course_combobox.get()
+        classes = self.load_classes_for_subject(selected_subject)
+        self.class_combobox['values'] = classes
+        if classes:
+            self.class_combobox.set(classes[0])  # Đặt giá trị mặc định
 
-        if student_data:  # Sửa sinh viên
-            cursor.execute("UPDATE students SET HoDem=?, Ten=?, Lop=? WHERE MSSV=?",
-                           (last_name, first_name, class_name, student_id))
-        else:  # Thêm sinh viên
-            cursor.execute("INSERT INTO students (MSSV, HoDem, Ten, Lop) VALUES (?, ?, ?, ?)",
-                           (student_id, last_name, first_name, class_name))
+    def load_classes_for_subject(self, subject_name):
+        # Truy vấn danh sách lớp học dựa trên môn học
+        self.conn = sqlite3.connect('student_management.db')
+        self.cursor = self.conn.cursor()
+        self.cursor.execute("SELECT DISTINCT Lop FROM courses WHERE MonHoc = ?", (subject_name,))
+        classes = [row[0] for row in self.cursor.fetchall()]
+        self.conn.close()  # Đóng kết nối
+        return classes
 
-        conn.commit()
-        conn.close()
-        self.load_students()  # Tải lại danh sách sinh viên
-        self.form_window.destroy()
+    def update_subjects(self, event):
+        selected_class = self.class_combobox.get()
+        subjects = self.load_subjects(selected_class)
+        self.course_combobox['values'] = subjects
+        if subjects:
+            self.course_combobox.set(subjects[0])  # Đặt giá trị mặc định
+
+    def load_subjects(self, class_name):
+        # Truy vấn danh sách môn học dựa trên lớp học
+        self.conn = sqlite3.connect('student_management.db')
+        self.cursor = self.conn.cursor()
+        self.cursor.execute("SELECT DISTINCT MonHoc FROM courses WHERE Lop = ?", (class_name,))
+        subjects = [row[0] for row in self.cursor.fetchall()]
+        self.conn.close()  # Đóng kết nối
+        return subjects
+
+    def load_classes_and_subjects(self):
+        # Kết nối đến cơ sở dữ liệu
+        self.conn = sqlite3.connect('student_management.db')
+        self.cursor = self.conn.cursor()
+
+        # Lấy danh sách lớp
+        self.cursor.execute("SELECT DISTINCT Lop FROM courses")
+        classes = [row[0] for row in self.cursor.fetchall()]
+        #print("classes: " + str(classes))  # In ra để kiểm tra
+
+        # Lấy danh sách tên môn học
+        self.cursor.execute("SELECT DISTINCT MonHoc FROM courses")
+        courses = [row[0] for row in self.cursor.fetchall()]
+        #print("courses: " + str(courses))  # In ra để kiểm tra
+
+        # Đóng kết nối với cơ sở dữ liệu
+        self.conn.close()
+
+        # Trả về danh sách lớp và môn học
+        return classes, courses
+
+    def save_student(self, student_id, last_name, first_name, class_name, subject_name, student_data=None):
+        try:
+            self.conn = sqlite3.connect('student_management.db')
+            self.cursor = self.conn.cursor()
+            # Bước 1: Lưu thông tin sinh viên vào bảng students
+            if student_data is None:  # Thêm mới sinh viên
+                self.cursor.execute("""
+                   INSERT INTO students (MSSV, HoDem, Ten)
+                   VALUES (?, ?, ?)
+                   """, (student_id, last_name, first_name))
+                self.conn.commit()
+                student_id_db = self.cursor.lastrowid  # Lấy ID của sinh viên vừa thêm
+                print("Mon hoc: "+subject_name)
+                print("Lop: " + class_name)
+                # Bước 2: Lưu thông tin khóa học vào bảng student_courses
+                self.cursor.execute("SELECT ID FROM courses WHERE MonHoc = ? AND Lop = ?", (subject_name, class_name))
+                course = self.cursor.fetchone()
+
+                if course:
+                    course_id = course[0]
+                    self.cursor.execute("""
+                       INSERT INTO student_courses (StudentID, CourseID)
+                       VALUES (?, ?)
+                       """, (student_id_db, course_id))
+                    self.conn.commit()
+                    messagebox.showinfo("Thông báo", "Thêm sinh viên thành công!")
+                else:
+                    messagebox.showerror("Lỗi", "Không tìm thấy khóa học với tên và lớp đã cho.")
+
+            else:  # Cập nhật thông tin sinh viên
+                student_id_db = student_data[0]  # ID sinh viên hiện tại
+                self.cursor.execute("""
+                   UPDATE students
+                   SET MSSV = ?, HoDem = ?, Ten = ?
+                   WHERE ID = ?
+                   """, (student_id, last_name, first_name, student_id_db))
+                self.conn.commit()
+
+                messagebox.showinfo("Thông báo", "Cập nhật thông tin sinh viên thành công!")
+
+        except Exception as e:
+            messagebox.showerror("Lỗi", f"Có lỗi xảy ra: {str(e)}")
+        finally:
+            # Đóng cửa sổ sau khi lưu
+            self.form_window.destroy()
     
     def save_student_from_file(self, student_id, last_name, first_name,  co_phep, khong_phep, ti_le, id_course, p1, p2, p3, p4, p5, p6):
-        if (student_id and last_name and first_name):
+        #if (student_id and last_name and first_name):
             conn = sqlite3.connect('student_management.db')
             cursor = conn.cursor()
 
@@ -527,12 +638,12 @@ class StudentManagementApp(tk.Tk):
             id_course_student = cursor.lastrowid
             co_phep = 1
             ko_phep = 0
-            print("P1: "+str(p1))
-            print("P2: " + str(p2))
-            print("P3: " + str(p3))
-            print("P4: " + str(p4))
-            print("P5: " + str(p5))
-            print("P6: " + str(p6))
+            # print("P1: "+str(p1))
+            # print("P2: " + str(p2))
+            # print("P3: " + str(p3))
+            # print("P4: " + str(p4))
+            # print("P5: " + str(p5))
+            # print("P6: " + str(p6))
             if p1 == 'P':
                 #co_phep = co_phep + 1
                 cursor.execute("""
@@ -619,8 +730,8 @@ class StudentManagementApp(tk.Tk):
                     conn.commit()
             conn.close()
             self.load_students()
-        else:
-            messagebox.showerror("Lỗi", "Vui lòng nhập thông tin hợp lệ.")
+        # else:
+        #     messagebox.showerror("Lỗi", "Vui lòng nhập thông tin hợp lệ.")
 
     def save_course_from_file(self, dot, monhoc, lop):
             conn = sqlite3.connect('student_management.db')
@@ -644,60 +755,116 @@ class StudentManagementApp(tk.Tk):
         student_id = self.tree.item(selected_item)['values'][0]
         conn = sqlite3.connect('student_management.db')
         cursor = conn.cursor()
-        cursor.execute("DELETE FROM students WHERE student_id=?", (student_id,))
+        cursor.execute("DELETE FROM students WHERE MSSV=?", (student_id,))
         conn.commit()
         conn.close()
         self.load_students()
 
+    # def import_data(self):
+    #   file_path = filedialog.askopenfilename(filetypes=[("Excel Files", "*.xlsx;*.xls")])
+    #   if file_path:
+    #       # Display a message to confirm file selection
+    #       messagebox.showinfo("Thông báo", f"Đã chọn file: {file_path}")
+    #
+    #       # Check file extension to determine the library to use
+    #       if file_path.endswith('.xlsx'):
+    #           # Open the workbook using openpyxl for .xlsx files
+    #           workbook = openpyxl.load_workbook(file_path)
+    #           sheet = workbook.active  # Get the first sheet
+    #
+    #           # Read values from specific cells
+    #           dot = sheet['C6'].value  # A6 in Excel corresponds to 'C6'
+    #           monhoc = sheet['C9'].value  # A9 corresponds to 'C9'
+    #           lop = sheet['C10'].value  # A10 corresponds to 'C10'
+    #
+    #           # Print values
+    #           print(f"Giá trị A6 (dot): {dot}")
+    #           print(f"Giá trị A9 (monhoc): {monhoc}")
+    #           print(f"Giá trị A10 (lop): {lop}")
+    #
+    #           id_course = self.save_course_from_file(dot, monhoc, lop)
+    #           # Loop through rows 14 to 60 and columns B to AB (index 1 to 27)
+    #           for row in range(14, 61):
+    #               row_data = []
+    #               for col in range(2, 29):  # Columns B to AB
+    #                   cell_value = sheet.cell(row=row, column=col).value
+    #                   row_data.append(cell_value)
+    #
+    #               if len(row_data) >= 3:  # Ensure enough data is available in the row
+    #                   student_id = row_data[0]
+    #                   last_name = row_data[1]
+    #                   first_name = row_data[2]
+    #                   co_phep = row_data[23]
+    #                   khong_phep = row_data[24]
+    #                   ti_le = row_data[24]
+    #                   p1 = row_data[5]
+    #                   p2 = row_data[8]
+    #                   p3 = row_data[11]
+    #                   p4 = row_data[14]
+    #                   p5 = row_data[17]
+    #                   p6 = row_data[20]
+    #                   self.save_student_from_file(student_id, last_name, first_name, co_phep, khong_phep, ti_le, id_course, p1, p2, p3, p4, p5, p6)
+    #                   #print(f"Dòng {row}: {row_data}")
+    #               else:
+    #                   print(f"Dòng {row} không đủ dữ liệu.")
+    #       else:
+    #           messagebox.showerror("Lỗi", "Vui lòng chọn tệp Excel .xlsx!")
     def import_data(self):
-      file_path = filedialog.askopenfilename(filetypes=[("Excel Files", "*.xlsx;*.xls")])
-      if file_path:
-          # Display a message to confirm file selection
-          messagebox.showinfo("Thông báo", f"Đã chọn file: {file_path}")
-          
-          # Check file extension to determine the library to use
-          if file_path.endswith('.xlsx'):
-              # Open the workbook using openpyxl for .xlsx files
-              workbook = openpyxl.load_workbook(file_path)
-              sheet = workbook.active  # Get the first sheet
+        # Cho phép chọn nhiều file
+        file_paths = filedialog.askopenfilenames(filetypes=[("Excel Files", "*.xlsx;*.xls")])
 
-              # Read values from specific cells
-              dot = sheet['C6'].value  # A6 in Excel corresponds to 'C6'
-              monhoc = sheet['C9'].value  # A9 corresponds to 'C9'
-              lop = sheet['C10'].value  # A10 corresponds to 'C10'
+        if file_paths:
+            # Hiển thị thông báo xác nhận đã chọn file
+            messagebox.showinfo("Thông báo", f"Đã chọn {len(file_paths)} file(s): {', '.join(file_paths)}")
 
-              # Print values
-              print(f"Giá trị A6 (dot): {dot}")
-              print(f"Giá trị A9 (monhoc): {monhoc}")
-              print(f"Giá trị A10 (lop): {lop}")
+            for file_path in file_paths:
+                # Kiểm tra phần mở rộng file để xác định thư viện cần sử dụng
+                if file_path.endswith('.xlsx'):
+                    # Mở workbook sử dụng openpyxl cho file .xlsx
+                    workbook = openpyxl.load_workbook(file_path)
+                    sheet = workbook.active  # Lấy sheet đầu tiên
 
-              id_course = self.save_course_from_file(dot, monhoc, lop)
-              # Loop through rows 14 to 60 and columns B to AB (index 1 to 27)
-              for row in range(14, 61):
-                  row_data = []
-                  for col in range(2, 29):  # Columns B to AB
-                      cell_value = sheet.cell(row=row, column=col).value
-                      row_data.append(cell_value)
-                  
-                  if len(row_data) >= 3:  # Ensure enough data is available in the row
-                      student_id = row_data[0]
-                      last_name = row_data[1]
-                      first_name = row_data[2]
-                      co_phep = row_data[23]
-                      khong_phep = row_data[24]
-                      ti_le = row_data[24]
-                      p1 = row_data[5]
-                      p2 = row_data[8]
-                      p3 = row_data[11]
-                      p4 = row_data[14]
-                      p5 = row_data[17]
-                      p6 = row_data[20]
-                      self.save_student_from_file(student_id, last_name, first_name, co_phep, khong_phep, ti_le, id_course, p1, p2, p3, p4, p5, p6)
-                      #print(f"Dòng {row}: {row_data}")
-                  else:
-                      print(f"Dòng {row} không đủ dữ liệu.")
-          else:
-              messagebox.showerror("Lỗi", "Vui lòng chọn tệp Excel .xlsx!")
+                    # Đọc giá trị từ các ô cụ thể
+                    dot = sheet['C6'].value  # A6 trong Excel tương ứng với 'C6'
+                    monhoc = sheet['C9'].value  # A9 tương ứng với 'C9'
+                    lop = sheet['C10'].value  # A10 tương ứng với 'C10'
+
+                    # In giá trị
+                    print(f"Giá trị C6 (dot): {dot}")
+                    print(f"Giá trị C9 (monhoc): {monhoc}")
+                    print(f"Giá trị C10 (lop): {lop}")
+
+                    id_course = self.save_course_from_file(dot, monhoc, lop)
+
+                    # Vòng lặp qua các hàng từ 14 đến 60 và các cột từ B đến AB (index 1 đến 27)
+                    for row in range(14, 61):
+                        row_data = []
+                        for col in range(2, 29):  # Các cột từ B đến AB
+                            cell_value = sheet.cell(row=row, column=col).value
+                            row_data.append(cell_value)
+
+                        if len(row_data) >= 3:  # Đảm bảo đủ dữ liệu trong hàng
+                            student_id = row_data[0]
+                            last_name = row_data[1]
+                            first_name = row_data[2]
+                            co_phep = row_data[23]
+                            khong_phep = row_data[24]
+                            ti_le = row_data[26]  # Có thể bạn muốn sử dụng index 25 cho tỷ lệ vắng
+                            #print("Ti le: "+ti_le)
+                            p1 = row_data[5]
+                            p2 = row_data[8]
+                            p3 = row_data[11]
+                            p4 = row_data[14]
+                            p5 = row_data[17]
+                            p6 = row_data[20]
+                            self.save_student_from_file(student_id, last_name, first_name, co_phep, khong_phep, ti_le,
+                                                        id_course, p1, p2, p3, p4, p5, p6)
+                        else:
+                            print(f"Dòng {row} không đủ dữ liệu.")
+                else:
+                    messagebox.showerror("Lỗi", "Vui lòng chọn tệp Excel .xlsx!")
+
+
 if __name__ == "__main__":
     init_db()
     app = StudentManagementApp()
